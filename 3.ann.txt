@@ -1,0 +1,120 @@
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+
+df = pd.read_csv('Churn_Modelling.csv')
+
+print(df.head())
+print(df.isnull().sum().sum())
+
+X = df.drop(columns=['RowNumber', 'CustomerId', 'Surname', 'Exited'])
+y = df['Exited']
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+categorical_features = X.select_dtypes(include=['object']).columns
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), numeric_features),
+        ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
+    ]
+)
+
+X_train_scaled = preprocessor.fit_transform(X_train)
+X_test_scaled = preprocessor.transform(X_test)
+
+model = Sequential([
+    Dense(16, activation='relu', input_shape=(X_train_scaled.shape[1],)),
+    Dense(8, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+model.compile(
+    optimizer='adam',
+    loss='binary_crossentropy',
+    metrics=['accuracy']
+)
+
+model.fit(
+    X_train_scaled, y_train,
+    epochs=30,
+    batch_size=32,
+    validation_split=0.2
+)
+
+improved_model = Sequential([
+    Dense(32, activation='relu', input_shape=(X_train_scaled.shape[1],)),
+    Dropout(0.2),
+    Dense(16, activation='relu'),
+    Dropout(0.2),
+    Dense(8, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
+
+improved_model.compile(
+    optimizer='adam',
+    loss='binary_crossentropy',
+    metrics=['accuracy']
+)
+
+early_stop = EarlyStopping(
+    monitor='val_loss',
+    patience=5,
+    restore_best_weights=True
+)
+
+improved_model.fit(
+    X_train_scaled, y_train,
+    epochs=50,
+    batch_size=32,
+    validation_split=0.2,
+    callbacks=[early_stop]
+)
+
+loss, accuracy = improved_model.evaluate(X_test_scaled, y_test, verbose=0)
+
+print("Test Loss:", round(loss, 4))
+print("Test Accuracy:", round(accuracy * 100, 2), "%")
+
+y_prob = improved_model.predict(X_test_scaled)
+y_pred = (y_prob >= 0.5).astype(int).ravel()
+
+print("Accuracy:", accuracy_score(y_test, y_pred))
+
+cm = confusion_matrix(y_test, y_pred)
+
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt='d',
+    cmap='Blues',
+    xticklabels=['Stayed', 'Exited'],
+    yticklabels=['Stayed', 'Exited']
+)
+
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Bank Customer Churn Confusion Matrix')
+plt.show()
+
+print(classification_report(
+    y_test,
+    y_pred,
+    target_names=['Stayed', 'Exited'],
+    zero_division=0
+))
